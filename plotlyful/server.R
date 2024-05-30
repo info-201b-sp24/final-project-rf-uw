@@ -56,7 +56,7 @@ server <- function(input, output) {
                      "multi" ~ "Multiracial",
                      "nonwhite" ~ "Nonwhite"
           ), 
-          "%",
+          "%"
         ),
         breaks = c(0, 0.5, 1),
         labels = c("0%", "50%", "100%")
