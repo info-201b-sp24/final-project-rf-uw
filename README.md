@@ -5,7 +5,7 @@
 
 **Link to official version: https://rf-uw.shinyapps.io/INFO201Final/**
 
-**Link to plotly-less version that can actually run: https://rf-uw.shinyapps.io/INFO201Final_plotlyless/**
+**Link to plotly-less version (that can actually run): https://rf-uw.shinyapps.io/INFO201Final_plotlyless/**
 
 
 # Introduction
