@@ -6,7 +6,7 @@ library(scales)
 library(shiny)
 
 precinct_data <- read.csv(url("https://raw.githubusercontent.com/info-201b-sp24/final-project-rf-uw/main/precinct_data.csv"))
-precinct_shapes <- read_sf("/Users/school/Documents/info201code/INFO 201b FINAL/precinctshapes/precinct_shapes.shp")
+precinct_shapes <- read_sf("precinct_shapes.geojson")
 
 # Create separate, cleaned dataframes for easier use
 election_data <- precinct_data %>% select(NAME, X2008_President, X2012_President, X2016_President, X2020_President, X2022_Senate, X2020_Governor, X2018_Senate, X2016_Governor, X2016_Senate) %>% 
@@ -21,7 +21,8 @@ racial_data <- precinct_data %>% select(NAME, V_20_VAP_NH_Total, V_20_VAP_NH_Whi
     asian = V_20_VAP_NH_AsianAlone/V_20_VAP_NH_Total,
     pacific = V_20_VAP_NH_PacificAlone/V_20_VAP_NH_Total,
     native =  V_20_VAP_NH_NativeAlone/V_20_VAP_NH_Total,
-    multi = V_20_VAP_NH_TwoOrMore/V_20_VAP_NH_Total) %>%
+    multi = V_20_VAP_NH_TwoOrMore/V_20_VAP_NH_Total
+    ) %>%
   select(NAME, white, nonwhite, black, hispanic, asian, pacific, native, multi) %>%
   pivot_longer(!NAME, names_to = "race", values_to = "race_percent")
   
@@ -30,21 +31,33 @@ racial_data <- precinct_data %>% select(NAME, V_20_VAP_NH_Total, V_20_VAP_NH_Whi
 server <- function(input, output) {
   
 # Setup for first page plots
-  output$racial_map <- renderPlot({
-    
+  output$racial_map <- renderPlotly({
+    race_choice <- input$race_choice
 # Creating custom dataframe from input
     racial_joined <- inner_join(precinct_shapes, racial_data, by = "NAME")
     filtered_racial <- racial_joined %>% filter(race %in% input$race_choice)
 
 # Race/ethnicity map
     racial_map <- ggplot(filtered_racial) +
-      geom_sf(aes(fill = race_percent), color = "white", linewidth = 0.01) +
+      geom_sf(aes(fill = race_percent, text = paste("Name:", NAME, ", % of total:", round(race_percent, digits = 3))), color = "white", linewidth = 0.01) +
       labs(
         x = "Longitude",
         y = "Latitude"
       ) + 
       scale_fill_viridis_c(
-        name = "Racial %",
+        name = paste(
+          case_match(race_choice,
+                     "white" ~ "White",
+                     "black" ~ "Black",
+                     "hispanic" ~ "Hispanic",
+                     "asian" ~ "Asian",
+                     "pacific" ~ "Pacific Islander",
+                     "native" ~ "Native American",
+                     "multi" ~ "Multiracial",
+                     "nonwhite" ~ "Nonwhite"
+          ), 
+          "%"
+        ),
         breaks = c(0, 0.5, 1),
         labels = c("0%", "50%", "100%")
       ) +
@@ -53,11 +66,14 @@ server <- function(input, output) {
         rect = element_blank(),
         legend.title = element_text(vjust = 5, face = "bold")
       )
-    return(racial_map)
+    
+    racial_plotly <- ggplotly(racial_map, tooltip = "text")
+    
+    return(racial_plotly)
   })
 
 # Setup for second page plots  
-  output$election_map <- renderPlot({
+  output$election_map <- renderPlotly({
     
 # Creating custom dataframe from input    
     election_joined <- inner_join(precinct_shapes, election_data, by = "NAME")
@@ -65,7 +81,7 @@ server <- function(input, output) {
 
 # Election results map        
     election_map <- ggplot(filtered_election) +
-      geom_sf(aes(fill = margin, text = paste("Name:", NAME, "Margin:", margin)), color = "white",  linewidth = 0.01) +
+      geom_sf(aes(fill = margin, text = paste("Name:", NAME, ", Margin:", round(margin, 3))), color = "white",  linewidth = 0.01) +
       scale_fill_gradient2(
         low = "#DC3220",
         high = "#005AB5",
@@ -85,10 +101,12 @@ server <- function(input, output) {
         y = "Longitude"
       )
     
-    return(election_map)
+    election_plotly <- ggplotly(election_map, tooltip = "text")
+    
+    return(election_plotly)
   })
   
-  output$swing_map <- renderPlot({
+  output$swing_map <- renderPlotly({
     
 # Creating custom dataframe from input
     swing_from <- election_data %>% filter(election %in% input$election1)
@@ -99,7 +117,7 @@ server <- function(input, output) {
 
 # Election swing map        
     swing_map <- ggplot(precinct_joined_swing) +
-      geom_sf(aes(fill = swing), color = "#e0e0e0",  linewidth = 0.01) +
+      geom_sf(aes(fill = swing, text = paste("Name:", NAME, ", Swing:", round(swing, 3))), color = "#e0e0e0",  linewidth = 0.01) +
       scale_fill_gradient2(
         low = "#DC3220",
         high = "#005AB5",
@@ -120,7 +138,9 @@ server <- function(input, output) {
         legend.title = element_text(vjust = 5, face = "bold")
       )
     
-    return(swing_map)
+    swing_plotly <- ggplotly(swing_map, tooltip = "text")
+    
+    return(swing_plotly)
   })
   
 # Setup for third page plot
@@ -131,29 +151,31 @@ server <- function(input, output) {
     swing_df_correlation <- inner_join(swing_from_correlation, swing_to_correlation, by = "NAME") %>% 
       mutate(swing = margin.y - margin.x) 
     correlation_data <- inner_join(swing_df_correlation, racial_data, by = "NAME", relationship = "many-to-many")
-    lower_bound <- input$race_slider
-# Create faceted scatterplots
-    scatterplots <- ggplot(correlation_data, aes(x = race_percent, y = swing, text = paste("Swing:", swing, "Racial %:", race_percent))) +
-      geom_point(size = 0.05, alpha = 0.5) +
+    correlation_data <- correlation_data %>% filter(race %in% input$race_choice2)
+    lower_bound <- input$race_slider[1]
+    upper_bound <- input$race_slider[2]
+    
+# Create scatterplot
+    scatterplot <- correlation_data %>% 
+      ggplot(aes(x = race_percent, y = swing)) +
+      geom_point(aes(text = paste("Name:", NAME, ", Swing:", swing, ", Racial %:", round(race_percent, 3))), size = 0.25, alpha = 0.5, color = "dodgerblue4") +
+      geom_smooth(method = lm, color = "dodgerblue2", show.legend = TRUE, linewidth = 0.5) +
       labs(
-        x = "Percentage of population in each racial group",
+        x = "Percentage of population in selected racial group",
         y = "Margin swing"
       ) +
-      xlim(lower_bound, 1) +
-      geom_smooth(method = lm, formula =  x ~ y, color = "dodgerblue3", alpha = 0.3, size = 0.5) +
-      facet_grid(~race) +
-      geom_hline(yintercept = 0, alpha = 0.3,  linetype = "longdash") +
-      scale_y_discrete(breaks = c(-0.5, -0.25, 0, 0.25, 0.5),
-                       labels = c("R + 50", "R + 25", "No Change", "D + 25", "D + 50"), 
-                       limits = c(-0.5, 0.5)
-                       ) +
+      geom_hline(yintercept = 0, alpha = 0.5,  linetype = "longdash") +
+      scale_y_continuous(breaks = c(-0.5, -0.25, 0, 0.25, 0.5),
+                         labels = c("R + 50", "R + 25", "No Change", "D + 25", "D + 50"), 
+                         limits = c(-0.5, 0.5)
+                        ) +
+      scale_x_continuous(labels = label_percent(), limits = c(lower_bound, upper_bound)) +
       theme_minimal()
       
-    scatterplotly <- ggplotly(scatterplots, tooltip = "text")
+    scatterplotly <- ggplotly(scatterplot, tooltip = "text")
     
     return(scatterplotly)
   })
 }
-
 
 
